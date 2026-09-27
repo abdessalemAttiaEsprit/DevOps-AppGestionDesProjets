@@ -1,0 +1,96 @@
+pipeline {
+    agent any
+
+    tools {
+        // Assurez-vous que ces noms correspondent à vos configurations dans :
+        // Administer Jenkins -> Tools -> JDK / Maven / NodeJS
+        jdk 'Java21'
+        maven 'Maven3'
+    }
+
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+    }
+
+    stages {
+        stage('1. Checkout SCM') {
+            steps {
+                echo '=== Extraction du code source ==='
+                checkout scm
+            }
+        }
+
+        stage('2. Build & Test Backend (Spring Boot)') {
+            steps {
+                dir('backend') {
+                    echo '=== Compilation et exécution des tests unitaires ==='
+                    sh 'mvn clean test'
+                }
+            }
+            post {
+                always {
+                    // Inclusion des résultats de tests JUnit dans l'interface Jenkins
+                    junit allowEmptyResults: true, testResults: 'backend/target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('3. Analyse Qualité Code (SonarQube)') {
+            steps {
+                dir('backend') {
+                    echo '=== Analyse du code avec SonarQube ==='
+                    // Utilise la configuration du serveur SonarQube définie dans Jenkins
+                    withSonarQubeEnv('SonarQube') {
+                        sh 'mvn sonar:sonar'
+                    }
+                }
+            }
+        }
+
+        stage('4. Quality Gate (SonarQube)') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    // Bloque le pipeline si le code ne respecte pas les critères de qualité
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('5. Package Backend (JAR)') {
+            steps {
+                dir('backend') {
+                    echo '=== Génération du livrable JAR ==='
+                    sh 'mvn package -DskipTests'
+                }
+            }
+        }
+
+        stage('6. Build Frontend (Angular)') {
+            steps {
+                dir('frontend') {
+                    echo '=== Installation des dépendances et build Angular ==='
+                    sh 'npm install'
+                    sh 'npm run build -- --configuration=production'
+                }
+            }
+        }
+
+        stage('7. Archivage des Artefacts') {
+            steps {
+                echo '=== Sauvegarde des livrables dans Jenkins ==='
+                archiveArtifacts artifacts: 'backend/target/*.jar, frontend/dist/**', fingerprint: true
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '🎉 Pipeline CI terminé avec succès !'
+        }
+        failure {
+            echo '❌ Échec du Pipeline CI. Vérifiez les logs pour corriger l\'erreur.'
+        }
+    }
+}

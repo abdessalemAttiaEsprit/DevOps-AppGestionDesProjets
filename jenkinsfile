@@ -7,7 +7,7 @@ pipeline {
     }
 
     environment {
-        DOCKER_IMAGE = 'TON_USERNAME_DOCKERHUB/devops-appgestiondesprojets'
+        DOCKER_IMAGE = 'abdessalem123/devops-appgestiondesprojets'
         DOCKER_TAG = "${BUILD_NUMBER}"
     }
 

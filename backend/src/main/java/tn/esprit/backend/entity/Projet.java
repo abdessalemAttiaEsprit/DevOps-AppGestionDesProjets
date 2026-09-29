@@ -24,5 +24,7 @@ public class Projet {
 
     @JsonIgnore
     @OneToMany(mappedBy = "projet", fetch = FetchType.LAZY)
+    @Builder.Default
+
     private List<ProjetDetaille> projetsDetailles = new ArrayList<>();
 }

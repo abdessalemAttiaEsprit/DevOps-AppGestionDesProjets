@@ -6,7 +6,13 @@ pipeline {
         disableConcurrentBuilds()
     }
 
+    environment {
+        DOCKER_IMAGE = 'TON_USERNAME_DOCKERHUB/devops-appgestiondesprojets'
+        DOCKER_TAG = "${BUILD_NUMBER}"
+    }
+
     stages {
+
         stage('1. Checkout SCM') {
             steps {
                 echo '=== Extraction du code source ==='
@@ -14,24 +20,29 @@ pipeline {
             }
         }
 
-        stage('2. Build & Test Backend (Spring Boot)') {
+        stage('2. Build & Test Backend') {
             steps {
                 dir('backend') {
-                    echo '=== Compilation et exécution des tests unitaires ==='
+                    echo '=== Compilation et tests ==='
                     sh 'mvn clean test -Dspring.profiles.active=test'
                 }
             }
+
             post {
                 always {
-                    junit allowEmptyResults: true, testResults: 'backend/target/surefire-reports/*.xml'
+                    junit(
+                        allowEmptyResults: true,
+                        testResults: 'backend/target/surefire-reports/*.xml'
+                    )
                 }
             }
         }
 
-        stage('3. Analyse Qualité Code (SonarQube)') {
+        stage('3. Analyse SonarQube') {
             steps {
                 dir('backend') {
-                    echo '=== Analyse du code avec SonarQube ==='
+                    echo '=== Analyse SonarQube ==='
+
                     withSonarQubeEnv('SonarQube') {
                         sh 'mvn sonar:sonar'
                     }
@@ -39,47 +50,133 @@ pipeline {
             }
         }
 
-        stage('4. Quality Gate (SonarQube)') {
+        stage('4. Quality Gate') {
             steps {
-                timeout(time: 900, unit: 'MINUTES') {
+                timeout(time: 10, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
 
-        stage('5. Package Backend (JAR)') {
+        stage('5. Package Backend') {
             steps {
                 dir('backend') {
-                    echo '=== Génération du livrable JAR ==='
+                    echo '=== Génération du JAR ==='
                     sh 'mvn package -DskipTests'
                 }
             }
         }
 
-        stage('6. Build Frontend (Angular)') {
+        stage('6. Build Frontend') {
             steps {
                 dir('frontend') {
-                    echo '=== Installation des dépendances et build Angular ==='
+                    echo '=== Build Angular ==='
                     sh 'npm install'
                     sh 'npm run build'
                 }
             }
         }
 
-        stage('7. Archivage des Artefacts') {
+        stage('7. Archivage') {
             steps {
-                echo '=== Sauvegarde des livrables dans Jenkins ==='
-                archiveArtifacts artifacts: 'backend/target/*.jar', allowEmptyArchive: true, fingerprint: true
+                echo '=== Archivage du JAR ==='
+
+                archiveArtifacts(
+                    artifacts: 'backend/target/*.jar',
+                    allowEmptyArchive: true,
+                    fingerprint: true
+                )
+            }
+        }
+
+        stage('8. Docker Build') {
+            steps {
+                echo '=== Construction image Docker ==='
+
+                sh '''
+                    docker build \
+                    -f backend/Dockerfile \
+                    -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                    -t ${DOCKER_IMAGE}:latest \
+                    backend
+                '''
+            }
+        }
+
+        stage('9. Docker Hub') {
+            steps {
+                echo '=== Push Docker Hub ==='
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+
+                    sh '''
+                        echo "$DOCKER_PASSWORD" | docker login \
+                        -u "$DOCKER_USERNAME" \
+                        --password-stdin
+
+                        docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+
+                        docker push ${DOCKER_IMAGE}:latest
+
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('10. Docker Compose') {
+            steps {
+                echo '=== Déploiement Docker Compose ==='
+
+                sh '''
+                    docker compose down || true
+
+                    docker compose pull
+
+                    docker compose up -d
+                '''
+            }
+        }
+
+        stage('11. Monitoring') {
+            steps {
+                echo '=== Vérification Monitoring ==='
+
+                sh '''
+                    docker compose ps
+
+                    docker ps
+                '''
             }
         }
     }
 
     post {
+
         success {
-            echo '🎉 Pipeline CI terminé avec succès !'
+            echo '=========================================='
+            echo '🎉 PIPELINE CI/CD TERMINÉE AVEC SUCCÈS'
+            echo '=========================================='
         }
+
         failure {
-            echo '❌ Échec du Pipeline CI.'
+            echo '=========================================='
+            echo '❌ ÉCHEC DE LA PIPELINE'
+            echo '=========================================='
+        }
+
+        always {
+            echo '=== Nettoyage Docker ==='
+
+            sh '''
+                docker image prune -f || true
+            '''
         }
     }
 }

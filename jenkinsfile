@@ -129,20 +129,46 @@ pipeline {
                 }
             }
         }
+        stage('DEBUG Workspace') {
+            steps {
+                sh '''
+                    echo "=== WORKSPACE ==="
+                    pwd
+
+                    echo "=== FICHIERS ==="
+                    ls -la
+
+                    echo "=== DOCKER COMPOSE ==="
+                    ls -l docker-compose.yml
+
+                    echo "=== PROMETHEUS ==="
+                    ls -l prometheus/prometheus.yml
+
+                    echo "=== DOCKER ==="
+                    docker ps
+                '''
+            }
+        }
 
         stage('10. Docker Compose') {
             steps {
                 echo '=== Déploiement Docker Compose ==='
 
                 sh '''
+                    echo "=== Vérification Docker Compose ==="
+                    docker compose version
+
+                    echo "=== Arrêt des anciens conteneurs ==="
                     docker compose down || true
 
-                    docker compose pull
+                    echo "=== Démarrage de l'application ==="
+                    docker compose up -d --force-recreate
 
-                    docker compose up -d
+                    echo "=== État des conteneurs ==="
+                    docker compose ps
                 '''
             }
-        }
+}
 
         stage('11. Monitoring') {
             steps {

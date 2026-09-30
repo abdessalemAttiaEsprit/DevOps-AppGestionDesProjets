@@ -179,11 +179,11 @@ pipeline {
                     echo "=== Arrêt des anciens conteneurs ==="
                     docker compose down || true
 
-                    echo "=== Téléchargement des nouvelles images ==="
-                    docker compose pull || true
+                    echo "=== Récupération des nouvelles images ==="
+                    docker compose pull
 
                     echo "=== Démarrage de l'application ==="
-                    docker compose up -d --force-recreate
+                    docker compose up -d --force-recreate --pull always
 
                     echo "=== État des conteneurs ==="
                     docker compose ps

@@ -42,6 +42,14 @@
 
     <properties>
         <java.version>17</java.version>
+
+        <!-- JaCoCo -->
+        <jacoco.version>0.8.13</jacoco.version>
+
+        <!-- Rapport XML pour SonarQube -->
+        <sonar.coverage.jacoco.xmlReportPaths>
+            ${project.build.directory}/site/jacoco/jacoco.xml
+        </sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
     <dependencies>
@@ -52,7 +60,7 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
-        <!-- Spring Web -->
+        <!-- Spring Web MVC -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
@@ -64,22 +72,27 @@
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
+
+        <!-- Actuator -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+
+        <!-- Prometheus -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
-        <!-- Spring Boot Test -->
+        <!-- Tests Spring Boot -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- H2 Database pour les tests -->
+
+        <!-- H2 pour les tests -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -93,14 +106,14 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- JPA Tests -->
+        <!-- Tests JPA -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa-test</artifactId>
             <scope>test</scope>
         </dependency>
 
-        <!-- Web Tests -->
+        <!-- Tests Web MVC -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
@@ -111,11 +124,42 @@
 
     <build>
         <plugins>
+
+            <!-- SonarQube Maven Scanner -->
             <plugin>
                 <groupId>org.sonarsource.scanner.maven</groupId>
                 <artifactId>sonar-maven-plugin</artifactId>
                 <version>5.4.0.6343</version>
             </plugin>
+
+            <!-- JaCoCo : mesure de la couverture des tests -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+
+                <executions>
+
+                    <!-- Active l'agent avant l'exécution des tests -->
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+
+                    <!-- Génère les rapports HTML, XML et CSV -->
+                    <execution>
+                        <id>generate-coverage-report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+
+                </executions>
+            </plugin>
+
             <!-- Spring Boot Maven Plugin -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -141,7 +185,6 @@
                     <execution>
                         <id>default-compile</id>
                         <phase>compile</phase>
-
                         <goals>
                             <goal>compile</goal>
                         </goals>
@@ -159,7 +202,6 @@
                     <execution>
                         <id>default-testCompile</id>
                         <phase>test-compile</phase>
-
                         <goals>
                             <goal>testCompile</goal>
                         </goals>

@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -23,8 +24,24 @@ pipeline {
         stage('2. Build & Test Backend') {
             steps {
                 dir('backend') {
-                    echo '=== Compilation et tests ==='
-                    sh 'mvn clean test -Dspring.profiles.active=test'
+                    echo '=== Compilation et tests avec JaCoCo ==='
+
+                    sh '''
+                        mvn clean test jacoco:report \
+                            -Dspring.profiles.active=test
+                    '''
+
+                    echo '=== Vérification du rapport JaCoCo ==='
+
+                    sh '''
+                        test -f target/site/jacoco/jacoco.xml || {
+                            echo "ERREUR : rapport JaCoCo XML introuvable"
+                            exit 1
+                        }
+
+                        echo "Rapport JaCoCo XML généré avec succès"
+                        ls -lh target/site/jacoco/
+                    '''
                 }
             }
 
@@ -34,6 +51,12 @@ pipeline {
                         allowEmptyResults: true,
                         testResults: 'backend/target/surefire-reports/*.xml'
                     )
+
+                    archiveArtifacts(
+                        artifacts: 'backend/target/site/jacoco/**',
+                        allowEmptyArchive: true,
+                        fingerprint: true
+                    )
                 }
             }
         }
@@ -41,10 +64,13 @@ pipeline {
         stage('3. Analyse SonarQube') {
             steps {
                 dir('backend') {
-                    echo '=== Analyse SonarQube ==='
+                    echo '=== Analyse SonarQube avec JaCoCo ==='
 
                     withSonarQubeEnv('SonarQube') {
-                        sh 'mvn sonar:sonar'
+                        sh '''
+                            mvn sonar:sonar \
+                                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                        '''
                     }
                 }
             }
@@ -62,6 +88,7 @@ pipeline {
             steps {
                 dir('backend') {
                     echo '=== Génération du JAR ==='
+
                     sh 'mvn package -DskipTests'
                 }
             }
@@ -71,6 +98,7 @@ pipeline {
             steps {
                 dir('frontend') {
                     echo '=== Build Angular ==='
+
                     sh 'npm install'
                     sh 'npm run build'
                 }
@@ -125,6 +153,8 @@ pipeline {
                     )
                 ]) {
                     sh '''
+                        set +x
+
                         echo "$DOCKER_PASSWORD" | docker login \
                             -u "$DOCKER_USERNAME" \
                             --password-stdin
@@ -210,13 +240,13 @@ pipeline {
 
         success {
             echo '=========================================='
-            echo '🎉 PIPELINE CI/CD TERMINÉE AVEC SUCCÈS'
+            echo 'PIPELINE CI/CD TERMINEE AVEC SUCCES'
             echo '=========================================='
         }
 
         failure {
             echo '=========================================='
-            echo '❌ ÉCHEC DE LA PIPELINE'
+            echo 'ECHEC DE LA PIPELINE'
             echo '=========================================='
         }
 

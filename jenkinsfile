@@ -1,4 +1,4 @@
-
+```groovy
 pipeline {
     agent any
 
@@ -14,6 +14,9 @@ pipeline {
 
         K8S_NAMESPACE = 'devops'
         K8S_CONTEXT = 'minikube'
+
+        // Configuration Kubernetes accessible par Jenkins
+        KUBECONFIG = '/var/lib/jenkins/.kube/config'
     }
 
     stages {
@@ -28,21 +31,17 @@ pipeline {
         stage('2. Build & Test Backend') {
             steps {
                 dir('backend') {
-                    echo '=== Compilation et tests avec JaCoCo ==='
-
                     sh '''
-                        set -e
+                        set -eu
                         mvn clean test jacoco:report \
                             -Dspring.profiles.active=test
 
                         test -f target/site/jacoco/jacoco.xml
-
-                        echo "Rapport JaCoCo généré :"
+                        echo "Rapport JaCoCo généré."
                         ls -lh target/site/jacoco/
                     '''
                 }
             }
-
             post {
                 always {
                     junit(
@@ -62,10 +61,9 @@ pipeline {
         stage('3. Analyse SonarQube') {
             steps {
                 dir('backend') {
-                    echo '=== Analyse SonarQube avec JaCoCo ==='
-
                     withSonarQubeEnv('SonarQube') {
                         sh '''
+                            set -eu
                             mvn sonar:sonar \
                               -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
                         '''
@@ -85,7 +83,6 @@ pipeline {
         stage('5. Package Backend') {
             steps {
                 dir('backend') {
-                    echo '=== Génération du JAR ==='
                     sh 'mvn package -DskipTests'
                 }
             }
@@ -94,10 +91,15 @@ pipeline {
         stage('6. Build Frontend') {
             steps {
                 dir('frontend') {
-                    echo '=== Build Angular ==='
                     sh '''
-                        set -e
-                        npm install
+                        set -eu
+
+                        if [ -f package-lock.json ]; then
+                            npm ci
+                        else
+                            npm install
+                        fi
+
                         npm run build
                     '''
                 }
@@ -116,10 +118,8 @@ pipeline {
 
         stage('8. Docker Build') {
             steps {
-                echo '=== Construction des images ==='
-
                 sh '''
-                    set -e
+                    set -eu
 
                     docker build \
                       -f backend/Dockerfile \
@@ -136,10 +136,8 @@ pipeline {
             }
         }
 
-        stage('9. Docker Hub') {
+        stage('9. Publication Docker Hub') {
             steps {
-                echo '=== Publication sur Docker Hub ==='
-
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'dockerhub-credentials',
@@ -167,37 +165,49 @@ pipeline {
             }
         }
 
-        stage('10. Vérification Minikube') {
+        stage('10. Vérification Kubernetes') {
             steps {
-                echo '=== Vérification du cluster Kubernetes ==='
-
                 sh '''
-                    set -e
+                    set -eu
 
-                    kubectl config use-context ${K8S_CONTEXT}
-                    minikube status
+                    echo "=== Identité Jenkins ==="
+                    whoami
+                    echo "KUBECONFIG=$KUBECONFIG"
+
+                    echo "=== Fichier de configuration ==="
+                    test -r "$KUBECONFIG"
+
+                    echo "=== Contextes disponibles ==="
+                    kubectl config get-contexts
+
+                    echo "=== Sélection du contexte ==="
+                    kubectl config use-context "$K8S_CONTEXT"
+
+                    echo "=== Vérification du cluster ==="
                     kubectl cluster-info
                     kubectl get nodes
+
+                    echo "=== État de Minikube ==="
+                    minikube status
                 '''
             }
         }
 
         stage('11. Namespace Kubernetes') {
             steps {
-                echo '=== Création du namespace ==='
-
                 sh '''
-                    kubectl create namespace ${K8S_NAMESPACE} \
+                    set -eu
+
+                    kubectl create namespace "$K8S_NAMESPACE" \
                       --dry-run=client -o yaml | kubectl apply -f -
+
+                    kubectl get namespace "$K8S_NAMESPACE"
                 '''
             }
         }
 
-
         stage('12. Configuration MySQL et Spring') {
             steps {
-                echo '=== Configuration des accès à la base ==='
-
                 withCredentials([
                     string(
                         credentialsId: 'mysql-root-password',
@@ -213,13 +223,13 @@ pipeline {
                         set +x
 
                         kubectl create secret generic mysql-secret \
-                          --namespace="${K8S_NAMESPACE}" \
+                          --namespace="$K8S_NAMESPACE" \
                           --from-literal=MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" \
                           --from-literal=MYSQL_PASSWORD="$MYSQL_APP_PASSWORD" \
                           --dry-run=client -o yaml | kubectl apply -f -
 
                         kubectl create configmap spring-config \
-                          --namespace="${K8S_NAMESPACE}" \
+                          --namespace="$K8S_NAMESPACE" \
                           --from-literal=SPRING_DATASOURCE_URL='jdbc:mysql://mysql-service:3306/springdb' \
                           --from-literal=SPRING_DATASOURCE_USERNAME='spring' \
                           --dry-run=client -o yaml | kubectl apply -f -
@@ -228,24 +238,23 @@ pipeline {
             }
         }
 
-
         stage('13. Déploiement MySQL') {
             steps {
-                echo '=== Déploiement de MySQL et stockage persistant ==='
-
                 sh '''
-                    set -e
+                    set -eu
 
-                    kubectl apply -f k8s/mysql-deployment.yaml \
-                      -n ${K8S_NAMESPACE}
+                    kubectl apply \
+                      -f k8s/mysql-deployment.yaml \
+                      -n "$K8S_NAMESPACE"
 
                     kubectl rollout status deployment/mysql \
-                      -n ${K8S_NAMESPACE} --timeout=240s
+                      -n "$K8S_NAMESPACE" \
+                      --timeout=240s
 
                     kubectl wait \
                       --for=condition=Ready pod \
                       -l app=mysql \
-                      -n ${K8S_NAMESPACE} \
+                      -n "$K8S_NAMESPACE" \
                       --timeout=120s
                 '''
             }
@@ -253,70 +262,68 @@ pipeline {
 
         stage('14. Déploiement Backend et Frontend') {
             steps {
-                echo '=== Application des manifestes ==='
-
                 sh '''
-                    set -e
+                    set -eu
 
-                    kubectl apply -f k8s/backend-deployment.yaml \
-                      -n ${K8S_NAMESPACE}
+                    kubectl apply \
+                      -f k8s/backend-deployment.yaml \
+                      -n "$K8S_NAMESPACE"
 
-                    kubectl apply -f k8s/frontend-deployment.yaml \
-                      -n ${K8S_NAMESPACE}
+                    kubectl apply \
+                      -f k8s/frontend-deployment.yaml \
+                      -n "$K8S_NAMESPACE"
 
                     kubectl set image deployment/backend \
                       backend=${DOCKER_IMAGE}:${DOCKER_TAG} \
-                      -n ${K8S_NAMESPACE}
+                      -n "$K8S_NAMESPACE"
 
                     kubectl set image deployment/frontend \
                       frontend=${DOCKER_IMAGE}-frontend:${DOCKER_TAG} \
-                      -n ${K8S_NAMESPACE}
+                      -n "$K8S_NAMESPACE"
                 '''
             }
         }
 
         stage('15. Vérification du déploiement') {
             steps {
-                echo '=== Attente du démarrage des Deployments ==='
-
                 sh '''
-                    set -e
+                    set -eu
 
                     kubectl rollout status deployment/backend \
-                      -n ${K8S_NAMESPACE} --timeout=240s
+                      -n "$K8S_NAMESPACE" --timeout=240s
 
                     kubectl rollout status deployment/frontend \
-                      -n ${K8S_NAMESPACE} --timeout=240s
+                      -n "$K8S_NAMESPACE" --timeout=240s
 
                     echo "=== Pods ==="
-                    kubectl get pods -n ${K8S_NAMESPACE} -o wide
+                    kubectl get pods -n "$K8S_NAMESPACE" -o wide
 
                     echo "=== Deployments ==="
-                    kubectl get deployments -n ${K8S_NAMESPACE}
+                    kubectl get deployments -n "$K8S_NAMESPACE"
 
                     echo "=== Services ==="
-                    kubectl get services -n ${K8S_NAMESPACE}
+                    kubectl get services -n "$K8S_NAMESPACE"
                 '''
             }
         }
 
         stage('16. Monitoring Kubernetes') {
             steps {
-                echo '=== Vérification finale ==='
-
                 sh '''
+                    set -eu
+
                     echo "=== Pods ==="
-                    kubectl get pods -n ${K8S_NAMESPACE}
+                    kubectl get pods -n "$K8S_NAMESPACE"
 
                     echo "=== Services ==="
-                    kubectl get svc -n ${K8S_NAMESPACE}
+                    kubectl get svc -n "$K8S_NAMESPACE"
 
                     echo "=== Événements ==="
-                    kubectl get events -n ${K8S_NAMESPACE} \
+                    kubectl get events -n "$K8S_NAMESPACE" \
                       --sort-by=.metadata.creationTimestamp
 
                     echo "=== Images déployées ==="
-                    kubectl get deployments -n ${K8S_NAMESPACE} \
+                    kubectl get deployments -n "$K8S_NAMESPACE" \
                       -o custom-columns='NAME:.metadata.name,IMAGES:.spec.template.spec.containers[*].image'
                 '''
             }
@@ -325,21 +332,25 @@ pipeline {
 
     post {
         success {
-            echo '=========================================='
-            echo 'PIPELINE CI/CD ET DEPLOIEMENT KUBERNETES OK'
-            echo '=========================================='
+            echo '''
+            ==========================================
+            PIPELINE CI/CD ET DEPLOIEMENT KUBERNETES OK
+            ==========================================
+            '''
         }
 
         failure {
-            echo '=========================================='
-            echo 'ECHEC : consulter les logs du stage en erreur'
-            echo '=========================================='
+            echo '''
+            ==========================================
+            ECHEC : consulter les logs du stage en erreur
+            ==========================================
+            '''
         }
 
         always {
             echo '=== Nettoyage des anciennes images inutilisées ==='
-
             sh 'docker image prune -f || true'
         }
     }
 }
+```

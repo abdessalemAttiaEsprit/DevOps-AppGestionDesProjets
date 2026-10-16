@@ -177,64 +177,102 @@ pipeline {
             }
         }
 
-        stage('DEBUG Workspace') {
+
+        stage('10. Vérification Kubernetes') {
             steps {
+                echo '=== Vérification de Minikube ==='
+
                 sh '''
-                    echo "=== WORKSPACE ==="
-                    pwd
+                    set -e
 
-                    echo "=== FICHIERS ==="
-                    ls -la
-
-                    echo "=== DOCKER COMPOSE ==="
-                    ls -l docker-compose.yml
-
-                    echo "=== PROMETHEUS ==="
-                    ls -l prometheus/prometheus.yml
-
-                    echo "=== DOCKER ==="
-                    docker ps
+                    kubectl version --client
+                    kubectl config current-context
+                    kubectl cluster-info
+                    kubectl get nodes
                 '''
             }
         }
 
-        stage('10. Docker Compose') {
+        stage('11. Création du Namespace') {
             steps {
-                echo '=== Déploiement Docker Compose ==='
+                echo '=== Création du namespace devops ==='
 
                 sh '''
-                    echo "=== Vérification Docker Compose ==="
-                    docker compose version
-
-                    echo "=== Arrêt des anciens conteneurs ==="
-                    docker compose down || true
-
-                    echo "=== Récupération des nouvelles images ==="
-                    docker compose pull
-
-                    echo "=== Démarrage de l'application ==="
-                    docker compose up -d --force-recreate --pull always
-
-                    echo "=== État des conteneurs ==="
-                    docker compose ps
+                    kubectl create namespace devops \
+                        --dry-run=client -o yaml | kubectl apply -f -
                 '''
             }
         }
 
-        stage('11. Monitoring') {
+        stage('12. Déploiement Kubernetes') {
             steps {
-                echo '=== Vérification Monitoring ==='
+                echo '=== Application des manifestes Kubernetes ==='
 
                 sh '''
-                    echo "=== Docker Compose ==="
-                    docker compose ps
+                    set -e
 
-                    echo "=== Docker ==="
-                    docker ps
+                    kubectl apply -f k8s/mysql-deployment.yaml
+                    kubectl apply -f k8s/backend-deployment.yaml
+                    kubectl apply -f k8s/frontend-deployment.yaml
                 '''
             }
         }
-    }
+
+        stage('13. Mise à jour des images') {
+            steps {
+                echo '=== Mise à jour des images Docker ==='
+
+                sh '''
+                    set -e
+
+                    kubectl set image deployment/backend \
+                        backend=${DOCKER_IMAGE}:${DOCKER_TAG} \
+                        -n devops
+
+                    kubectl set image deployment/frontend \
+                        frontend=${DOCKER_IMAGE}-frontend:${DOCKER_TAG} \
+                        -n devops
+                '''
+            }
+        }
+
+        stage('14. Vérification du déploiement') {
+            steps {
+                echo '=== Attente du démarrage des applications ==='
+
+                sh '''
+                    set -e
+
+                    kubectl rollout status deployment/backend \
+                        -n devops --timeout=180s
+
+                    kubectl rollout status deployment/frontend \
+                        -n devops --timeout=180s
+
+                    kubectl get pods -n devops
+                    kubectl get deployments -n devops
+                    kubectl get services -n devops
+                '''
+            }
+        }
+
+        stage('15. Monitoring Kubernetes') {
+            steps {
+                echo '=== État du cluster ==='
+
+                sh '''
+                    echo "=== Pods ==="
+                    kubectl get pods -n devops -o wide
+
+                    echo "=== Services ==="
+                    kubectl get svc -n devops
+
+                    echo "=== Événements récents ==="
+                    kubectl get events -n devops \
+                        --sort-by=.metadata.creationTimestamp
+                '''
+            }
+        }
 
     post {
 

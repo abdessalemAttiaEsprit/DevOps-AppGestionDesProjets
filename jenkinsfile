@@ -164,33 +164,46 @@ pipeline {
             }
         }
 
+
         stage('10. Vérification Kubernetes') {
             steps {
                 sh '''
-                    set -eu
+                set -eu
 
-                    echo "=== Identité Jenkins ==="
-                    whoami
-                    echo "KUBECONFIG=$KUBECONFIG"
+                export KUBECONFIG=/var/lib/jenkins/.kube/config
+                echo "=== Identité Jenkins ==="
+                whoami
+                echo "KUBECONFIG=$KUBECONFIG"
 
-                    echo "=== Fichier de configuration ==="
-                    test -r "$KUBECONFIG"
+                echo "=== Vérification du fichier de configuration ==="
+                test -r "$KUBECONFIG"
 
-                    echo "=== Contextes disponibles ==="
-                    kubectl config get-contexts
+                echo "=== Contextes disponibles ==="
+                kubectl config get-contexts
 
-                    echo "=== Sélection du contexte ==="
-                    kubectl config use-context "$K8S_CONTEXT"
+                echo "=== Vérification du contexte ==="
+                CURRENT_CONTEXT=$(kubectl config current-context)
+                echo "Contexte actuel : $CURRENT_CONTEXT"
 
-                    echo "=== Vérification du cluster ==="
-                    kubectl cluster-info
-                    kubectl get nodes
+                if [ "$CURRENT_CONTEXT" != "$K8S_CONTEXT" ]; then
+                    echo "ERREUR : contexte attendu '$K8S_CONTEXT', contexte actuel '$CURRENT_CONTEXT'"
+                    exit 1
+                fi
 
-                    echo "=== État de Minikube ==="
-                    minikube status
+                echo "=== Vérification du cluster ==="
+                kubectl cluster-info
+
+                echo "=== Vérification des nœuds ==="
+                kubectl get nodes
+
+                echo "=== État de Minikube ==="
+                minikube status
+
+                echo "=== Vérification Kubernetes terminée ==="
                 '''
             }
         }
+
 
         stage('11. Namespace Kubernetes') {
             steps {

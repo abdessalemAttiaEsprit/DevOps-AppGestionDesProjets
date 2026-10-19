@@ -218,9 +218,9 @@ pipeline {
                 sh '''
                     set -eu
                     kubectl apply -f k8s/mysql-deployment.yaml -n "$K8S_NAMESPACE"
-                    kubectl rollout status deployment/mysql -n "$K8S_NAMESPACE" --timeout=240s
+                    kubectl rollout status deployment/mysql -n "$K8S_NAMESPACE" --timeout=900s
                     kubectl wait --for=condition=Ready pod -l app=mysql \
-                      -n "$K8S_NAMESPACE" --timeout=120s
+                      -n "$K8S_NAMESPACE" --timeout=900s
                 '''
             }
         }
